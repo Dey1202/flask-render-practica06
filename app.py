@@ -2,7 +2,6 @@ import os
 from flask import Flask, request, redirect, url_for, render_template_string
 from datetime import datetime
 
-# Intentar importar psycopg2 para PostgreSQL
 try:
     import psycopg2
     import psycopg2.extras
@@ -12,60 +11,79 @@ except ImportError:
 
 app = Flask(__name__)
 
-# Configuracion de base de datos desde variable de entorno
+# OBTENER URL DE LA BASE DE DATOS
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
+# CORRECCIÓN AUTOMÁTICA DE FORMATO DE URL PARA EVITAR ERRORES
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
 def get_db():
-    """Conectar a PostgreSQL"""
-    if not USAR_DB or not DATABASE_URL:
+    """Conectar a PostgreSQL de forma directa"""
+    if not DATABASE_URL:
         return None
-    conn = psycopg2.connect(DATABASE_URL)
-    return conn
+    try:
+        conn = psycopg2.connect(DATABASE_URL, connect_timeout=5)
+        return conn
+    except Exception as e:
+        print(f"Error de conexión: {e}")
+        return None
 
 def init_db():
     """Crear tabla si no existe"""
     conn = get_db()
     if conn:
-        cur = conn.cursor()
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS comentarios (
-                id SERIAL PRIMARY KEY,
-                nombre VARCHAR(100) NOT NULL,
-                campus VARCHAR(100),
-                comentario TEXT NOT NULL,
-                fecha TIMESTAMP DEFAULT NOW()
-            )
-        """)
-        conn.commit()
-        cur.close()
-        conn.close()
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS comentarios (
+                    id SERIAL PRIMARY KEY,
+                    nombre VARCHAR(100) NOT NULL,
+                    campus VARCHAR(100),
+                    comentario TEXT NOT NULL,
+                    fecha TIMESTAMP DEFAULT NOW()
+                )
+            """)
+            conn.commit()
+            cur.close()
+            conn.close()
+        except Exception as e:
+            print(f"Error al inicializar tabla: {e}")
 
 def obtener_comentarios():
     """Leer comentarios de la base de datos"""
     conn = get_db()
     if not conn:
         return []
-    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-    cur.execute("SELECT * FROM comentarios ORDER BY fecha DESC LIMIT 50")
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    return rows
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        cur.execute("SELECT * FROM comentarios ORDER BY fecha DESC LIMIT 50")
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        return rows
+    except Exception as e:
+        print(f"Error al obtener comentarios: {e}")
+        return []
 
 def guardar_comentario(nombre, campus, comentario):
     """Guardar un comentario en la base de datos"""
     conn = get_db()
     if not conn:
         return False
-    cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO comentarios (nombre, campus, comentario) VALUES (%s, %s, %s)",
-        (nombre, campus, comentario)
-    )
-    conn.commit()
-    cur.close()
-    conn.close()
-    return True
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO comentarios (nombre, campus, comentario) VALUES (%s, %s, %s)",
+            (nombre, campus, comentario)
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Error al guardar comentario: {e}")
+        return False
 
 TEMPLATE = """
 <!DOCTYPE html>
@@ -73,7 +91,7 @@ TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Practica 06 - PaaS Render</title>
+    <title>Práctica 06 - PaaS Render</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -125,7 +143,7 @@ TEMPLATE = """
             font-size: 1em;
         }
         button {
-            background: #7f5af0;
+            background: #2cb67d;
             color: white;
             border: none;
             padding: 12px 30px;
@@ -133,8 +151,9 @@ TEMPLATE = """
             cursor: pointer;
             font-size: 1em;
             width: 100%;
+            font-weight: bold;
         }
-        button:hover { background: #6b4ed1; }
+        button:hover { background: #249666; }
         .comment {
             background: rgba(255,255,255,0.05);
             padding: 15px;
@@ -149,8 +168,8 @@ TEMPLATE = """
         }
         .status {
             display: inline-block;
-            width: 8px;
-            height: 8px;
+            width: 10px;
+            height: 10px;
             border-radius: 50%;
             margin-right: 5px;
         }
@@ -170,49 +189,42 @@ TEMPLATE = """
 
         <div class="info-box">
             <h3>Estado del Sistema</h3>
-            <p><span class="status {{ 'ok' if db_ok else 'off' }}"></span> Base de datos: {{ 'Conectada (PostgreSQL)' if db_ok else 'No disponible' }}</p>
+            <p><span class="status {{ 'ok' if db_ok else 'off' }}"></span> Base de datos: {{ 'Conectada (PostgreSQL) 🟢' if db_ok else 'No disponible 🔴' }}</p>
             <p><span class="status ok"></span> Servidor: Render Web Service</p>
-            <p><span class="status ok"></span> Deploy: Automatico desde GitHub</p>
+            <p><span class="status ok"></span> Deploy: Automático desde GitHub (CD)</p>
         </div>
 
         <h2>Muro de Comentarios</h2>
         
-        {% if db_ok %}
         <form method="POST" action="/">
             <input name="nombre" placeholder="Tu nombre" required>
             <select name="campus">
                 <option value="TecNM Tampico">TecNM Tampico</option>
                 <option value="TecNM Ciudad Madero">TecNM Ciudad Madero</option>
                 <option value="TecNM Altamira">TecNM Altamira</option>
-                <option value="TecNM Panuco">TecNM Panuco</option>
+                <option value="TecNM Pánuco">TecNM Pánuco</option>
                 <option value="Otro">Otro</option>
             </select>
             <textarea name="comentario" placeholder="Escribe un comentario..." rows="3" required></textarea>
-            <button type="submit">Publicar</button>
+            <button type="submit">Publicar Comentario</button>
         </form>
 
-        <h3 style="margin:15px 0">Comentarios ({{ comentarios|length }})</h3>
+        <h3 style="margin:15px 0">Comentarios Guardados ({{ comentarios|length }})</h3>
         {% for c in comentarios %}
         <div class="comment">
-            <strong>{{ c.nombre }}</strong> - {{ c.campus }}
-            <p style="margin-top:5px">{{ c.comentario }}</p>
+            <strong>{{ c.nombre }}</strong> - <span style="color:#2cb67d">{{ c.campus }}</span>
+            <p style="margin-top:5px; color:#ddd;">{{ c.comentario }}</p>
             <div class="meta">{{ c.fecha.strftime('%d/%m/%Y %H:%M') if c.fecha else '' }}</div>
         </div>
         {% endfor %}
 
         {% if not comentarios %}
-            <p style="color:#888; text-align:center; margin:20px">No hay comentarios aun. Se el primero.</p>
+            <p style="color:#888; text-align:center; margin:20px">No hay comentarios aún. ¡Sé el primero!</p>
         {% endif %}
 
-        {% else %}
-        <div class="info-box">
-            <p>La base de datos no esta conectada. Configura la variable DATABASE_URL en Render para habilitar los comentarios.</p>
-        </div>
-        {% endif %}
-
-        <div class="info-box" style="margin-top:30px">
-            <h3>Alumno</h3>
-            <p>[Tu nombre aqui] - Servicios en la Nube</p>
+        <div class="info-box" style="margin-top:30px; border-top: 2px solid #7f5af0;">
+            <h3>Alumno / Desarrollador</h3>
+            <p>Práctica 06 - Desarrollado Exitosamente</p>
         </div>
     </div>
 </body>
@@ -231,19 +243,13 @@ def index():
             return redirect(url_for("index"))
             
     comentarios = obtener_comentarios()
-    db_ok = USAR_DB and DATABASE_URL != ""
+    # Verificación real intentando conectar
+    conn_prueba = get_db()
+    db_ok = conn_prueba is not None
+    if conn_prueba:
+        conn_prueba.close()
+        
     return render_template_string(TEMPLATE, comentarios=comentarios, db_ok=db_ok)
-
-@app.route("/api/status")
-def status():
-    return {
-        "status": "ok",
-        "plataforma": "Render.com",
-        "modelo": "PaaS",
-        "base_datos": "conectada" if (USAR_DB and DATABASE_URL) else "no configurada",
-        "framework": "Flask",
-        "python": os.popen("python3 --version").read().strip()
-    }
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
